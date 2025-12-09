@@ -1,0 +1,23 @@
+Sub ConvertDatesToText_Sheet1()
+    Dim ws As Worksheet
+    Dim lastRow As Long
+    Dim cell As Range
+    Dim v
+
+    Set ws = ThisWorkbook.Worksheets("Sheet1")
+    lastRow = ws.Cells(ws.Rows.Count, "N").End(xlUp).Row
+
+    For Each cell In ws.Range("N9:N" & lastRow)
+        v = cell.Value
+
+        ' Skip errors and blanks
+        If Not IsError(v) And Len(Trim$(cell.Value)) > 0 Then
+            ' If the value can be interpreted as a date, convert to text "MM/DD/YYYY"
+            If IsDate(v) Then
+                cell.NumberFormat = "@"                    ' force text
+                cell.Value = Format$(CDate(v), "mm/dd/yyyy")
+            End If
+        End If
+    Next cell
+End Sub
+
