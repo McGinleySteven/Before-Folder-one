@@ -1,0 +1,274 @@
+Option Explicit
+
+Sub CleanAndFormatData()
+    Dim ws As Worksheet
+    Dim rng As Range
+    Dim cell As Range
+    Dim col As Long
+    Dim lastRow As Long
+    Dim addr As String, cleanedAddr As String
+    Dim part1 As String, part2 As String, part3 As String, part4 As String
+    Dim sh As Worksheet
+    Dim numPart As String, datePart As String, rawText As String
+    
+    ' --- Remove all sheets except "Sheet1" ---
+    Application.DisplayAlerts = False
+    For Each sh In ThisWorkbook.Sheets
+        If sh.Name <> "Sheet1" Then
+            sh.Delete
+        End If
+    Next sh
+    Application.DisplayAlerts = True
+    
+    ' Work only on Sheet1
+    Set ws = ThisWorkbook.Sheets("Sheet1")
+    
+    ' --- Remove italics from all rows ---
+    ws.Cells.Font.Italic = False
+    
+    ' --- Delete data in B4, H4, I4 (entire merged areas) ---
+    ws.Range("B4").MergeArea.ClearContents
+    ws.Range("H4").MergeArea.ClearContents
+    ws.Range("I4").MergeArea.ClearContents
+    
+    ' --- Fill B4 with formatted value from B2 and B3 ---
+    rawText = CStr(ws.Range("B2").Value)
+    numPart = ExtractEightDigitNumber(rawText)
+    
+    If IsDate(ws.Range("B3").Value) Then
+        ' Format exactly as YYYY-MMDDYYYY
+        datePart = Format(ws.Range("B3").Value, "yyyy-mmddyyyy")
+    Else
+        datePart = "0000-00000000"
+    End If
+    
+    ws.Range("B4").Value = numPart & "-" & datePart
+    
+    ' --- Find last used row (based on column A) ---
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    
+    ' --- General cleaning for A–M (skip E and F) ---
+    For col = 1 To 13 ' A to M
+        If col <> 5 And col <> 6 Then ' Skip Column E and F (handled separately)
+            Set rng = ws.Range(ws.Cells(9, col), ws.Cells(lastRow, col))
+            
+            For Each cell In rng
+                If Not IsEmpty(cell.Value) Then
+                    If Not cell.HasFormula Then
+                        Dim cleaned As String
+                        cleaned = CleanString(CStr(cell.Value))
+                        
+                        If col <= 3 Then
+                            cell.Value = ProperCaseSafe(cleaned)
+                        Else
+                            cell.Value = cleaned
+                        End If
+                        
+                        ' --- Convert state names to abbreviations ---
+                        cell.Value = ReplaceStateWithAbbreviation(cell.Value)
+                    End If
+                End If
+            Next cell
+        End If
+    Next col
+    
+    ' --- Special formatting for Column E ---
+    Set rng = ws.Range(ws.Cells(9, 5), ws.Cells(lastRow, 5))
+    For Each cell In rng
+        If Not IsEmpty(cell.Value) Then
+            If cell.Hyperlinks.Count > 0 Then cell.Hyperlinks.Delete
+            cell.Font.Underline = xlUnderlineStyleNone
+            cell.Font.Color = vbBlack
+        End If
+    Next cell
+    
+    ' --- Address cleaning + splitting for Column F ---
+    For Each cell In ws.Range("F9:F" & lastRow)
+        If Not IsEmpty(cell.Value) Then
+            ' Clean address first
+            cleanedAddr = CleanString(CStr(cell.Value))
+            addr = Trim(cleanedAddr)
+            
+            ' First chunk stays in F
+            part1 = GetChunk(addr, 40)
+            cell.Value = ReplaceStateWithAbbreviation(part1)
+            
+            ' Remaining text
+            addr = Mid(addr, Len(part1) + 2)
+            
+            If Len(addr) > 0 Then
+                part2 = GetChunk(addr, 40)
+                cell.Offset(0, 1).Value = ReplaceStateWithAbbreviation(part2) ' G
+                addr = Mid(addr, Len(part2) + 2)
+            End If
+            
+            If Len(addr) > 0 Then
+                part3 = GetChunk(addr, 40)
+                cell.Offset(0, 2).Value = ReplaceStateWithAbbreviation(part3) ' H
+                addr = Mid(addr, Len(part3) + 2)
+            End If
+            
+            If Len(addr) > 0 Then
+                part4 = GetChunk(addr, 40)
+                cell.Offset(0, 3).Value = ReplaceStateWithAbbreviation(part4) ' I
+            End If
+        End If
+    Next cell
+    
+    ' --- Apply Calibri, size 11 font from row 9 down ---
+    With ws.Range("A9:M" & lastRow).Font
+        .Name = "Calibri"
+        .Size = 11
+    End With
+    
+    ' --- Left align rows 9 and down ---
+    ws.Range("A9:M" & lastRow).HorizontalAlignment = xlLeft
+
+    MsgBox "Workbook cleaned: only Sheet1 kept, italics removed, merged areas cleared, B4 rebuilt, Column F cleaned and split, font standardized, left aligned, and US states abbreviated!", vbInformation
+End Sub
+
+' --- Helper: Extract 8-digit number ---
+Public Function ExtractEightDigitNumber(txt As String) As String
+    Dim i As Long, candidate As String
+    ExtractEightDigitNumber = "00000000" ' default
+    
+    For i = Len(txt) To 1 Step -1
+        If Mid(txt, i, 1) Like "[0-9]" Then
+            candidate = Mid(txt, i - 7, 8)
+            If candidate Like "########" Then
+                ExtractEightDigitNumber = candidate
+                Exit Function
+            End If
+        End If
+    Next i
+End Function
+
+' --- Helper: Clean string (remove accents & non-alphanumeric) ---
+Public Function CleanString(txt As String) As String
+    Dim i As Long, ch As String, result As String
+    txt = Trim(ReplaceAccents(txt))
+    result = ""
+    
+    For i = 1 To Len(txt)
+        ch = Mid(txt, i, 1)
+        If ch Like "[A-Za-z0-9 ]" Then
+            result = result & ch
+        End If
+    Next i
+    
+    CleanString = result
+End Function
+
+' --- Helper: Replace accents ---
+Public Function ReplaceAccents(txt As String) As String
+    txt = Replace(txt, "Á", "A"): txt = Replace(txt, "á", "a")
+    txt = Replace(txt, "É", "E"): txt = Replace(txt, "é", "e")
+    txt = Replace(txt, "Í", "I"): txt = Replace(txt, "í", "i")
+    txt = Replace(txt, "Ó", "O"): txt = Replace(txt, "ó", "o")
+    txt = Replace(txt, "Ú", "U"): txt = Replace(txt, "ú", "u")
+    ' … add more replacements as needed …
+    ReplaceAccents = txt
+End Function
+
+' --- Helper: Proper case safely ---
+Public Function ProperCaseSafe(txt As String) As String
+    If IsNumeric(txt) Then
+        ProperCaseSafe = txt
+    Else
+        ProperCaseSafe = StrConv(LCase(txt), vbProperCase)
+    End If
+End Function
+
+' --- Helper: Chunk text by length ---
+Public Function GetChunk(txt As String, maxLen As Long) As String
+    Dim cutPos As Long
+    Dim segment As String
+    
+    txt = Trim(txt)
+    If Len(txt) = 0 Then
+        GetChunk = ""
+        Exit Function
+    End If
+    
+    If Len(txt) <= maxLen Then
+        GetChunk = txt
+        Exit Function
+    End If
+    
+    segment = Left(txt, maxLen + 1)
+    cutPos = InStrRev(segment, " ")
+    
+    If cutPos = 0 Then cutPos = maxLen
+    
+    If cutPos > 1 Then
+        GetChunk = Left(txt, cutPos - 1)
+    Else
+        GetChunk = Left(txt, maxLen)
+    End If
+End Function
+
+' --- Helper: Replace state full names with abbreviations ---
+Public Function ReplaceStateWithAbbreviation(txt As String) As String
+    Dim states As Object, key As Variant
+    Set states = CreateObject("Scripting.Dictionary")
+    
+    ' Full list of U.S. states + DC
+    states.Add "Alabama", "AL"
+    states.Add "Alaska", "AK"
+    states.Add "Arizona", "AZ"
+    states.Add "Arkansas", "AR"
+    states.Add "California", "CA"
+    states.Add "Colorado", "CO"
+    states.Add "Connecticut", "CT"
+    states.Add "Delaware", "DE"
+    states.Add "Florida", "FL"
+    states.Add "Georgia", "GA"
+    states.Add "Hawaii", "HI"
+    states.Add "Idaho", "ID"
+    states.Add "Illinois", "IL"
+    states.Add "Indiana", "IN"
+    states.Add "Iowa", "IA"
+    states.Add "Kansas", "KS"
+    states.Add "Kentucky", "KY"
+    states.Add "Louisiana", "LA"
+    states.Add "Maine", "ME"
+    states.Add "Maryland", "MD"
+    states.Add "Massachusetts", "MA"
+    states.Add "Michigan", "MI"
+    states.Add "Minnesota", "MN"
+    states.Add "Mississippi", "MS"
+    states.Add "Missouri", "MO"
+    states.Add "Montana", "MT"
+    states.Add "Nebraska", "NE"
+    states.Add "Nevada", "NV"
+    states.Add "New Hampshire", "NH"
+    states.Add "New Jersey", "NJ"
+    states.Add "New Mexico", "NM"
+    states.Add "New York", "NY"
+    states.Add "North Carolina", "NC"
+    states.Add "North Dakota", "ND"
+    states.Add "Ohio", "OH"
+    states.Add "Oklahoma", "OK"
+    states.Add "Oregon", "OR"
+    states.Add "Pennsylvania", "PA"
+    states.Add "Rhode Island", "RI"
+    states.Add "South Carolina", "SC"
+    states.Add "South Dakota", "SD"
+    states.Add "Tennessee", "TN"
+    states.Add "Texas", "TX"
+    states.Add "Utah", "UT"
+    states.Add "Vermont", "VT"
+    states.Add "Virginia", "VA"
+    states.Add "Washington", "WA"
+    states.Add "West Virginia", "WV"
+    states.Add "Wisconsin", "WI"
+    states.Add "Wyoming", "WY"
+    states.Add "District of Columbia", "DC"
+    
+    ReplaceStateWithAbbreviation = txt
+    For Each key In states.Keys
+        If InStr(1, txt, key, vbTextCompare) > 0 Then
+            ReplaceStateWithAbbreviation = Replace(txt, key, states(key), , , vbTextCompare)
+        End If
+    Next key
+End Function
